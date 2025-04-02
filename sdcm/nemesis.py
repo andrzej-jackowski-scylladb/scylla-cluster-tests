@@ -5302,31 +5302,32 @@ class Nemesis:  # pylint: disable=too-many-instance-attributes,too-many-public-m
             errors = []
             audit_start = datetime.datetime.now() - datetime.timedelta(seconds=5)
             InfoEvent(message='Writing/Reading data from audited keyspace').publish()
-            write_cmd = f"cassandra-stress write no-warmup cl=ONE n=1000 -schema" \
+            query_num = 1000 * 1000
+            write_cmd = f"cassandra-stress write no-warmup cl=ONE n={query_num} -schema" \
                         f" 'replication(strategy=NetworkTopologyStrategy,replication_factor=3)" \
-                        f" keyspace={audit_keyspace}' -mode cql3 native -rate 'threads=1 throttle=1000/s'" \
-                        f" -pop seq=1..1000 -col 'n=FIXED(1) size=FIXED(128)' -log interval=5"
+                        f" keyspace={audit_keyspace}' -mode cql3 native -rate 'threads=10 throttle=100000/s'" \
+                        f" -pop seq=1..{query_num} -col 'n=FIXED(1) size=FIXED(128)' -log interval=5"
             write_thread = self.tester.run_stress_thread(
                 stress_cmd=write_cmd, round_robin=True, stop_test_on_failure=False)
             self.tester.verify_stress_thread(write_thread, error_handler=self._nemesis_stress_failure_handler)
-            read_cmd = f"cassandra-stress read no-warmup cl=ONE n=1000 " \
+            read_cmd = f"cassandra-stress read no-warmup cl=ONE n={query_num} " \
                        f" -schema 'replication(strategy=NetworkTopologyStrategy,replication_factor=3)" \
-                       f" keyspace={audit_keyspace}' -mode cql3 native -rate 'threads=1 throttle=1000/s'" \
-                       f" -pop seq=1..1000 -col 'n=FIXED(1) size=FIXED(128)' -log interval=5"
+                       f" keyspace={audit_keyspace}' -mode cql3 native -rate 'threads=10 throttle=100000/s'" \
+                       f" -pop seq=1..{query_num} -col 'n=FIXED(1) size=FIXED(128)' -log interval=5"
             read_thread = self.tester.run_stress_thread(
                 stress_cmd=read_cmd, round_robin=True, stop_test_on_failure=False)
             self.tester.verify_stress_thread(read_thread, error_handler=self._nemesis_stress_failure_handler)
             InfoEvent(message='Verifying Audit table contents').publish()
-            rows = audit.get_audit_log(from_datetime=audit_start, category="DML", limit_rows=1500)
+            rows = audit.get_audit_log(from_datetime=audit_start, category="DML", limit_rows=query_num * 1.5)
             # filter out USE keyspace rows due to https://github.com/scylladb/scylla-enterprise/issues/3169
             rows = [row for row in rows if not row.operation.startswith("USE")]
-            if len(rows) != 1000:
-                errors.append(f"Audit log for DML contains {len(rows)} rows while should contain 1000 rows")
+            if len(rows) != query_num:
+                errors.append(f"Audit log for DML contains {len(rows)} rows while should contain {query_num} rows")
                 for row in rows:
                     LOGGER.error("DML audit log row: %s", row)
-            rows = audit.get_audit_log(from_datetime=audit_start, category="QUERY", limit_rows=1500)
-            if len(rows) != 1000:
-                errors.append(f"Audit log for QUERY contains {len(rows)} rows while should contain 1000 rows")
+            rows = audit.get_audit_log(from_datetime=audit_start, category="QUERY", limit_rows=query_num * 1.5)
+            if len(rows) != query_num:
+                errors.append(f"Audit log for QUERY contains {len(rows)} rows while should contain {query_num} rows")
                 for row in rows:
                     LOGGER.error("QUERY audit log row: %s", row)
         except Exception as ex:  # pylint: disable=broad-except
